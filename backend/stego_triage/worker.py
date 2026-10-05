@@ -7,6 +7,56 @@ from .security import safe_join
 from .analyzers.base import get_analyzers
 from .flags import set_flag_prefix
 
+_LOCATION_FIELDS = ("analyzer_id", "line", "offset", "excerpt", "evidence")
+_LOCATION_CAP = 5
+
+
+def _location(item):
+    found = {}
+    for field in _LOCATION_FIELDS:
+        value = item.get(field)
+        if value not in (None, ""):
+            found[field] = value
+    return found
+
+
+def _same_location(left, right):
+    return all(left.get(field) == right.get(field) for field in ("analyzer_id", "line", "offset", "evidence"))
+
+
+def _remember_location(existing, item):
+    locations = existing.get("locations")
+    if not isinstance(locations, list):
+        locations = []
+        existing["locations"] = locations
+    if not locations:
+        first = _location(existing)
+        if first:
+            locations.append(first)
+    found = _location(item)
+    if not found or any(_same_location(found, prior) for prior in locations):
+        return
+    if len(locations) < _LOCATION_CAP:
+        locations.append(found)
+
+
+def merge_findings(existing, incoming, analyzer_id=None):
+    index = {}
+    for position, item in enumerate(existing):
+        index.setdefault((item.get("kind"), item.get("value")), position)
+    for item in incoming or []:
+        if not isinstance(item, dict):
+            continue
+        if analyzer_id and not item.get("analyzer_id"):
+            item["analyzer_id"] = analyzer_id
+        key = (item.get("kind"), item.get("value"))
+        if key in index:
+            _remember_location(existing[index[key]], item)
+            continue
+        index[key] = len(existing)
+        existing.append(item)
+    return existing
+
 class AnalyzerWorker(threading.Thread):
     def __init__(self):
         super().__init__(daemon=True)
@@ -136,13 +186,7 @@ class AnalyzerWorker(threading.Thread):
                 job['analyzers'][-1] = final_res
 
                 if final_res.get('findings'):
-                    seen = {(item.get('kind'), item.get('value')) for item in job['findings']}
-                    for item in final_res['findings']:
-                        key = (item.get('kind'), item.get('value'))
-                        if key in seen:
-                            continue
-                        seen.add(key)
-                        job['findings'].append(item)
+                    merge_findings(job['findings'], final_res['findings'], final_res.get('id'))
 
                 if final_res.get('status') == 'success':
                     has_success = True

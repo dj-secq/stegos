@@ -1,4 +1,5 @@
 import os
+import re
 import time
 import json
 from typing import Dict, Any, List
@@ -10,6 +11,30 @@ from ..passphrase import metadata_candidates, strings_candidates
 
 def extract_flags(text: str) -> list:
     return findings_for_text(text, "strings or metadata")
+
+
+_STRING_OFFSET = re.compile(r"^[0-9a-fA-F]+$")
+
+
+def _annotate_strings(findings, content):
+    encoding = "ASCII"
+    by_line = {}
+    for number, line in enumerate(str(content or "").splitlines(), 1):
+        if line.startswith("## "):
+            encoding = line[3:].strip() or encoding
+            continue
+        by_line[number] = (encoding, line)
+    for item in findings:
+        meta = by_line.get(item.get("line"))
+        if not meta:
+            continue
+        label, line = meta
+        if label and label != "ASCII":
+            item["evidence"] = f"strings, {label}"
+        parts = line.strip().split(None, 1)
+        if len(parts) == 2 and _STRING_OFFSET.fullmatch(parts[0]):
+            item["offset"] = "0x" + parts[0].lower()
+    return findings
 
 @register
 class FileAnalyzer(Analyzer):
@@ -157,9 +182,15 @@ class StringsAnalyzer(Analyzer):
         start = time.monotonic()
         
         log_path = os.path.join(job_dir, "logs", f"{self.id}.txt")
-        # Extract both ascii and utf-16
+        # ASCII, UTF-16 LE, and UTF-16 BE. Markers keep each pass identifiable.
+        quoted = input_path.replace("'", "'\\''")
+        command = (
+            f"printf '%s\\n' '## ASCII'; strings -n 6 -a -t x '{quoted}'; "
+            f"printf '%s\\n' '## UTF-16 LE'; strings -n 6 -a -t x -e l '{quoted}'; "
+            f"printf '%s\\n' '## UTF-16 BE'; strings -n 6 -a -t x -e b '{quoted}'"
+        )
         run_res = run_bounded(
-            ["sh", "-c", f"strings -n 6 -a -t x '{input_path}'; strings -n 6 -a -t x -e l '{input_path}'"],
+            ["sh", "-c", command],
             job_dir, log_path, os.path.join(job_dir, "logs", f"{self.id}_err.txt")
         )
         
@@ -170,11 +201,16 @@ class StringsAnalyzer(Analyzer):
                 with open(log_path, "r", errors="replace") as f:
                     content = f.read(1_000_000)
                 
-                flags = extract_flags(content)
+                flags = _annotate_strings(extract_flags(content), content)
+                phrases = _annotate_strings(strings_candidates(content), content)
                 res['findings'].extend(flags)
-                res['findings'].extend(strings_candidates(content))
-                
-                res['summary'] = f"Found strings. {len(flags)} candidate flags."
+                res['findings'].extend(phrases)
+                flag_count = sum(1 for item in flags if item.get("kind") == "candidate_flag")
+                decode_count = sum(1 for item in flags if item.get("kind") == "encoding")
+                res['summary'] = f"Found strings. {flag_count} candidate flags."
+                if decode_count:
+                    noun = "lead" if decode_count == 1 else "leads"
+                    res['summary'] += f" {decode_count} decoded text {noun}."
             except Exception:
                 res['summary'] = "Extracted strings."
                 

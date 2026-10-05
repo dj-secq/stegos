@@ -7,6 +7,7 @@ from .base import Analyzer, register
 from ..runner import run_bounded
 from ..jobs import _write_manifest, get_job
 from ..passphrase import filename_candidate
+from ..flags import charset_finding
 
 @register
 class FileProfileAnalyzer(Analyzer):
@@ -28,6 +29,10 @@ class FileProfileAnalyzer(Analyzer):
             sha256 = hashlib.sha256()
             
             with open(input_path, "rb") as f:
+                sample = f.read(65536)
+                if sample:
+                    md5.update(sample)
+                    sha256.update(sample)
                 while chunk := f.read(65536):
                     md5.update(chunk)
                     sha256.update(chunk)
@@ -91,6 +96,7 @@ class FileProfileAnalyzer(Analyzer):
                 "value": hashes["sha256"],
                 "evidence": ""
             })
+            res['findings'].append(charset_finding(sample))
             if job:
                 named = filename_candidate(job["input"].get("display_name"))
                 if named:

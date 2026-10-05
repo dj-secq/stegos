@@ -23,8 +23,8 @@ _NOISE = _GENERIC | {
 _TAG_NAMES = {"passphrase", "password", "passwd", "passphrase", "pass", "secret", "pwd"}
 
 
-def _item(kind, title, value, evidence, item_id):
-    return {
+def _item(kind, title, value, evidence, item_id, line=None, offset=None, excerpt=None):
+    item = {
         "id": item_id,
         "kind": kind,
         "confidence": "low",
@@ -32,6 +32,13 @@ def _item(kind, title, value, evidence, item_id):
         "value": value,
         "evidence": evidence,
     }
+    if line:
+        item["line"] = line
+    if offset:
+        item["offset"] = offset
+    if excerpt:
+        item["excerpt"] = excerpt
+    return item
 
 
 def classify(value):
@@ -82,6 +89,9 @@ def tag_candidate(name, value):
     text = str(value or "").strip()
     if not text or len(text) > 64 or not _PRINTABLE.fullmatch(text):
         return None
+    excerpt = f"{key}: {text}"
+    if len(excerpt) > 160:
+        excerpt = excerpt[:157] + "..."
     if _HEX32.fullmatch(text):
         return _item(
             "hash_candidate",
@@ -89,6 +99,7 @@ def tag_candidate(name, value):
             text,
             f"metadata tag {key}",
             "hash-tag",
+            excerpt=excerpt,
         )
     return _item(
         "passphrase_candidate",
@@ -96,6 +107,7 @@ def tag_candidate(name, value):
         text,
         f"metadata tag {key}",
         "passphrase-tag",
+        excerpt=excerpt,
     )
 
 
@@ -127,9 +139,14 @@ def _string_body(line):
 def strings_candidates(text):
     passphrase = None
     digest = None
-    for raw in str(text or "").splitlines():
+    for number, raw in enumerate(str(text or "").splitlines(), 1):
         body = _string_body(raw)
         kind = classify(body)
+        parts = raw.strip().split(None, 1)
+        offset = "0x" + parts[0].lower() if len(parts) == 2 and _OFFSET.fullmatch(parts[0]) else None
+        excerpt = raw.strip()
+        if len(excerpt) > 160:
+            excerpt = excerpt[:157] + "..."
         if kind == "hash" and digest is None:
             digest = _item(
                 "hash_candidate",
@@ -137,6 +154,9 @@ def strings_candidates(text):
                 body,
                 "strings",
                 "hash-strings",
+                line=number,
+                offset=offset,
+                excerpt=excerpt,
             )
         elif kind == "passphrase" and passphrase is None:
             passphrase = _item(
@@ -145,6 +165,9 @@ def strings_candidates(text):
                 body,
                 "strings",
                 "passphrase-strings",
+                line=number,
+                offset=offset,
+                excerpt=excerpt,
             )
         if passphrase and digest:
             break

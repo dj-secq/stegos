@@ -53,6 +53,23 @@ def _preview(text: str) -> str:
     return text if len(text) <= 180 else text[:180] + "..."
 
 
+def _first_line(text: str, predicate):
+    for number, line in enumerate(text.splitlines(), 1):
+        if predicate(line):
+            excerpt = line if len(line) <= 160 else line[:157] + "..."
+            return number, excerpt
+    return None, None
+
+
+def _cite(findings, line, excerpt):
+    for item in findings:
+        if line:
+            item["line"] = line
+        if excerpt:
+            item["excerpt"] = excerpt
+    return findings
+
+
 def _read_text(input_path: str):
     with open(input_path, "rb") as handle:
         data = handle.read(1_000_000)
@@ -119,24 +136,31 @@ class WhitespaceAnalyzer(Analyzer):
                 res["status"] = "no_result"
                 res["summary"] = "Skipped binary input."
             else:
-                decoded = decode_trailing_whitespace(data.decode("latin1", "replace"))
+                text = data.decode("latin1", "replace")
+                decoded = decode_trailing_whitespace(text)
                 if not decoded:
                     res["status"] = "no_result"
                     res["summary"] = "No trailing-whitespace message."
                 else:
                     res["status"] = "success"
                     res["summary"] = f"Decoded {len(decoded)} trailing-whitespace messages."
+                    line, excerpt = _first_line(text, lambda item: item.endswith((" ", "\t")))
                     for item in decoded:
                         preview = item if len(item) <= 180 else item[:180] + "..."
-                        res["findings"].append({
+                        finding = {
                             "id": f"ws-{len(res['findings'])}",
                             "kind": "observation",
                             "confidence": "medium",
                             "title": "Trailing whitespace decoded",
                             "value": preview,
                             "evidence": "spaces and tabs at line ends",
-                        })
-                        res["findings"].extend(findings_for_text(item, "trailing whitespace"))
+                        }
+                        if line:
+                            finding["line"] = line
+                        if excerpt:
+                            finding["excerpt"] = excerpt
+                        res["findings"].append(finding)
+                        res["findings"].extend(_cite(findings_for_text(item, "trailing whitespace"), line, excerpt))
         except Exception as exc:
             res["status"] = "failed"
             res["error"] = str(exc)
@@ -223,24 +247,35 @@ class ZeroWidthAnalyzer(Analyzer):
                 res["summary"] = "No zero-width characters."
                 return _finish(res, started)
             listed = ", ".join(f"{label} × {count}" for label, count in present.items())
-            res["findings"].append({
+            line, excerpt = _first_line(text, lambda item: any(char in ZERO_WIDTH for char in item))
+            count_finding = {
                 "id": "zw-count",
                 "kind": "observation",
                 "confidence": "medium",
                 "title": "Zero-width characters",
                 "value": listed,
                 "evidence": "U+200B, U+200C, U+200D, and U+FEFF in file order",
-            })
+            }
+            if line:
+                count_finding["line"] = line
+            if excerpt:
+                count_finding["excerpt"] = excerpt
+            res["findings"].append(count_finding)
             if decoded:
-                res["findings"].append({
+                text_finding = {
                     "id": "zw-text",
                     "kind": "observation",
                     "confidence": "medium",
                     "title": "Zero-width decoded",
                     "value": _preview(decoded),
                     "evidence": mapping + ". U+200D and U+FEFF are separators",
-                })
-                res["findings"].extend(findings_for_text(decoded, "zero-width"))
+                }
+                if line:
+                    text_finding["line"] = line
+                if excerpt:
+                    text_finding["excerpt"] = excerpt
+                res["findings"].append(text_finding)
+                res["findings"].extend(_cite(findings_for_text(decoded, "zero-width"), line, excerpt))
                 res["summary"] = f"Decoded a zero-width message. {listed}."
             else:
                 res["summary"] = f"Counted zero-width characters. {listed}."
@@ -281,24 +316,35 @@ class UnusualSpaceAnalyzer(Analyzer):
             value = listed
             if ordinary:
                 value += f", ordinary spaces × {ordinary}"
-            res["findings"].append({
+            line, excerpt = _first_line(text, lambda item: any(char in UNUSUAL_SPACES for char in item))
+            count_finding = {
                 "id": "sp-count",
                 "kind": "observation",
                 "confidence": "medium",
                 "title": "Unusual spaces",
                 "value": value,
                 "evidence": "space separators mixed with U+0020",
-            })
+            }
+            if line:
+                count_finding["line"] = line
+            if excerpt:
+                count_finding["excerpt"] = excerpt
+            res["findings"].append(count_finding)
             if decoded:
-                res["findings"].append({
+                text_finding = {
                     "id": "sp-text",
                     "kind": "observation",
                     "confidence": "medium",
                     "title": "Unusual spaces decoded",
                     "value": _preview(decoded),
                     "evidence": f"U+0020 is 0 and {label} is 1, in file order",
-                })
-                res["findings"].extend(findings_for_text(decoded, "unusual spaces"))
+                }
+                if line:
+                    text_finding["line"] = line
+                if excerpt:
+                    text_finding["excerpt"] = excerpt
+                res["findings"].append(text_finding)
+                res["findings"].extend(_cite(findings_for_text(decoded, "unusual spaces"), line, excerpt))
                 res["summary"] = "Decoded a space pattern. " + listed + "."
             else:
                 res["summary"] = "Counted unusual spaces. " + listed + "."

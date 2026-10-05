@@ -8,6 +8,7 @@ import uuid
 
 MAX_TEXT = 1_000_000
 MAX_HITS = 20
+MAX_DECODE_LEADS = 8
 COLLECT_CAP = 200
 KNOWN = ("flag", "ctf", "htb", "picoctf", "thm", "h4g")
 
@@ -19,6 +20,8 @@ _B64_SPACED = re.compile(r"[A-Za-z0-9+/]{4,}={0,2}(?:[ \t\r\n]+[A-Za-z0-9+/]{4,}
 _B32 = re.compile(r"[A-Za-z2-7]{8,400}={0,6}")
 _PERCENT = re.compile(r"%([0-9a-fA-F]{2})")
 _ENTITY = re.compile(r"&#(x[0-9a-fA-F]{1,6}|\d{1,7});", re.I)
+_PERCENT_RUN = re.compile(r"(?:%[0-9A-Fa-f]{2}){4,}")
+_ENTITY_RUN = re.compile(r"(?:&#(?:x[0-9A-Fa-f]{1,6}|\d{1,7});){4,}", re.I)
 
 
 def _pattern(prefix: str) -> re.Pattern[str]:
@@ -145,30 +148,101 @@ def _layers():
     )
 
 
+def _looks_encoded(token: str, detail: str) -> bool:
+    if detail == "hex":
+        return True
+    cleaned = re.sub(r"\s+", "", token)
+    if detail == "base64":
+        if "=" in cleaned:
+            return True
+        letters = [char for char in cleaned if char.isalpha()]
+        mixed = any(char.isupper() for char in letters) and any(char.islower() for char in letters)
+        marked = any(char.isdigit() or char in "+/" for char in cleaned)
+        return mixed or marked
+    if detail == "base32":
+        return "=" in cleaned or any(char.isdigit() for char in cleaned)
+    return True
+
+
+def _worth_text(text: str) -> bool:
+    if not text or len(text) < 8 or len(text) > 200 or len(set(text)) < 3:
+        return False
+    useful = sum(char.isalnum() or char in " _{}" for char in text)
+    return useful >= len(text) * 0.6
+
+
+def _locate(text: str, start, end):
+    if start is None or not text:
+        return None, None
+    start = max(0, min(int(start), len(text)))
+    end = max(start, min(int(end if end is not None else start), len(text)))
+    line = text.count("\n", 0, start) + 1
+    line_start = text.rfind("\n", 0, start) + 1
+    line_end = text.find("\n", start)
+    if line_end < 0:
+        line_end = len(text)
+    raw = text[line_start:line_end].strip("\r")
+    if len(raw) > 160:
+        local = max(0, start - line_start)
+        begin = max(0, local - 70)
+        snippet = raw[begin:begin + 157].strip()
+        if begin:
+            snippet = "..." + snippet
+        if begin + 157 < len(raw):
+            snippet += "..."
+        raw = snippet
+    excerpt = raw.strip()
+    return line, excerpt or None
+
+
 def search(text: str, prefix: str = "") -> list[dict[str, str]]:
     source = str(text or "")[:MAX_TEXT]
     intact = _pattern(prefix)
-    hits: list[dict[str, str]] = []
-    seen: set[str] = set()
+    flags: list[dict[str, str]] = []
+    decodes: list[dict[str, str]] = []
+    seen_flags: set[str] = set()
+    seen_decodes: set[str] = set()
 
-    def add(value: str, detail: str) -> None:
+    def add_flag(value: str, detail: str, start: int, end: int) -> None:
         key = value.lower()
-        if key in seen or len(hits) >= COLLECT_CAP:
+        if key in seen_flags or len(flags) >= COLLECT_CAP:
             return
-        seen.add(key)
-        hits.append({"value": value, "detail": detail})
+        seen_flags.add(key)
+        flags.append({
+            "value": value,
+            "detail": detail,
+            "kind": "candidate_flag",
+            "start": start,
+            "end": end,
+        })
 
-    def add_intact(blob: str, detail: str) -> None:
+    def add_decode(value: str, detail: str, start: int, end: int) -> None:
+        key = value.lower()
+        if key in seen_decodes or key in seen_flags or len(decodes) >= MAX_DECODE_LEADS:
+            return
+        if not _worth_text(value):
+            return
+        seen_decodes.add(key)
+        decodes.append({
+            "value": value,
+            "detail": detail,
+            "kind": "encoding",
+            "start": start,
+            "end": end,
+        })
+
+    def add_intact(blob: str, detail: str, start: int, end: int) -> None:
         for match in intact.finditer(blob):
-            add(match.group(1), detail)
-            if len(hits) >= COLLECT_CAP:
+            add_flag(match.group(1), detail, start, end)
+            if len(flags) >= COLLECT_CAP:
                 return
 
-    add_intact(source, "intact")
+    for match in intact.finditer(source):
+        add_flag(match.group(1), "intact", match.start(1), match.end(1))
 
     length = len(source)
     index = 0
-    while index < length and len(hits) < COLLECT_CAP:
+    while index < length and len(flags) < COLLECT_CAP:
         if _is_sep(source[index]):
             index += 1
             continue
@@ -197,43 +271,86 @@ def search(text: str, prefix: str = "") -> list[dict[str, str]]:
             span += 1
         found = intact.search("".join(collapsed))
         if found:
-            add(found.group(1), "split")
+            add_flag(found.group(1), "split", index, cursor)
         index = max(index + 1, cursor)
 
-    def second_layer(decoded: str) -> None:
-        for pattern, decode, detail in _layers():
+    def consider(decoded: str, detail: str, start: int, end: int, token: str) -> None:
+        if intact.search(decoded):
+            add_intact(decoded, detail, start, end)
+            return
+        promoted = False
+        best_value = None
+        best_detail = None
+
+        def remember(inner: str, inner_detail: str) -> None:
+            nonlocal promoted, best_value, best_detail
+            if not inner:
+                return
+            if intact.search(inner):
+                add_intact(inner, inner_detail, start, end)
+                promoted = True
+                return
+            if _worth_text(inner) and (best_value is None or len(inner) > len(best_value)):
+                best_value = inner
+                best_detail = inner_detail
+
+        for pattern, decode, inner_detail in _layers():
             for match in pattern.finditer(decoded):
-                if len(hits) >= COLLECT_CAP:
-                    return
                 inner = decode(match.group(0))
-                if inner and intact.search(inner):
-                    add_intact(inner, detail)
+                if inner and _looks_encoded(match.group(0), inner_detail):
+                    remember(inner, inner_detail)
+                elif inner and intact.search(inner):
+                    remember(inner, inner_detail)
         percent = _percent_decode(decoded)
-        if percent and intact.search(percent):
-            add_intact(percent, "url")
+        if percent and percent != decoded:
+            remember(percent, "url")
         entity = _entity_decode(decoded)
-        if entity and intact.search(entity):
-            add_intact(entity, "entity")
+        if entity and entity != decoded:
+            remember(entity, "entity")
+        if promoted:
+            return
+        if best_value:
+            add_decode(best_value, best_detail or detail, start, end)
+            return
+        if _looks_encoded(token, detail):
+            add_decode(decoded, detail, start, end)
 
     for pattern, decode, detail in _layers():
         for match in pattern.finditer(source):
-            if len(hits) >= COLLECT_CAP:
+            if len(flags) >= COLLECT_CAP and len(decodes) >= MAX_DECODE_LEADS:
                 break
-            decoded = decode(match.group(0))
+            token = match.group(0)
+            decoded = decode(token)
             if not decoded:
                 continue
-            if intact.search(decoded):
-                add_intact(decoded, detail)
-                continue
-            second_layer(decoded)
+            consider(decoded, detail, match.start(), match.end(), token)
 
     percent = _percent_decode(source)
     if percent:
-        add_intact(percent, "url")
+        start, end = (0, 0)
+        located = _PERCENT.search(source)
+        if located:
+            start, end = located.start(), located.end()
+        add_intact(percent, "url", start, end)
     entity = _entity_decode(source)
     if entity:
-        add_intact(entity, "entity")
-    return _prefer(hits, prefix)[:MAX_HITS]
+        start, end = (0, 0)
+        located = _ENTITY.search(source)
+        if located:
+            start, end = located.start(), located.end()
+        add_intact(entity, "entity", start, end)
+
+    for pattern, decode, detail in ((_PERCENT_RUN, _percent_decode, "url"), (_ENTITY_RUN, _entity_decode, "entity")):
+        for match in pattern.finditer(source):
+            if len(decodes) >= MAX_DECODE_LEADS:
+                break
+            decoded = decode(match.group(0))
+            if decoded and not intact.search(decoded):
+                add_decode(decoded, detail, match.start(), match.end())
+
+    ordered = _prefer(flags, prefix)[:MAX_HITS]
+    ordered.extend(decodes[:MAX_DECODE_LEADS])
+    return ordered
 
 
 def search_bytes(data: bytes, prefix: str = "") -> list[dict[str, str]]:
@@ -266,34 +383,129 @@ _TITLES = {
     "url": "Candidate flag inside url encoding",
     "entity": "Candidate flag inside html entity",
 }
+_ENCODE_TITLES = {
+    "hex": "Hex decoded to text",
+    "base64": "Base64 decoded to text",
+    "base32": "Base32 decoded to text",
+    "url": "URL encoding decoded to text",
+    "entity": "HTML entity decoded to text",
+}
 
 
 def set_flag_prefix(value: str) -> None:
     _FLAG_PREFIX.set(str(value or ""))
 
 
-def _to_findings(hits, evidence):
-    return [
-        {
+def _to_findings(hits, evidence, text=""):
+    findings = []
+    for hit in hits:
+        kind = hit.get("kind") or "candidate_flag"
+        if kind == "encoding":
+            title = _ENCODE_TITLES.get(hit.get("detail"), "Decoded text")
+            confidence = "low"
+        else:
+            title = _TITLES.get(hit.get("detail"), "Candidate CTF flag")
+            confidence = "high"
+        item = {
             "id": f"flag-{uuid.uuid4().hex[:8]}",
-            "kind": "candidate_flag",
-            "confidence": "high",
-            "title": _TITLES.get(hit["detail"], "Candidate CTF flag"),
+            "kind": kind,
+            "confidence": confidence,
+            "title": title,
             "value": hit["value"],
             "evidence": evidence,
         }
-        for hit in hits
-    ]
+        if text and hit.get("start") is not None:
+            line, excerpt = _locate(text, hit.get("start"), hit.get("end"))
+            if line:
+                item["line"] = line
+            if excerpt:
+                item["excerpt"] = excerpt
+        findings.append(item)
+    return findings
 
 
 def findings_for_text(text, evidence=""):
-    return _to_findings(search(text, _FLAG_PREFIX.get()), evidence)
+    source = str(text or "")[:MAX_TEXT]
+    return _to_findings(search(source, _FLAG_PREFIX.get()), evidence, source)
 
 
 def findings_for_bytes(data, evidence=""):
     if not data:
         return []
-    return _to_findings(search_bytes(data, _FLAG_PREFIX.get()), evidence)
+    sample = data[:MAX_TEXT]
+    texts = [sample.decode("utf-8", "replace")]
+    if b"\x00" in sample[:4096]:
+        texts.append(sample.decode("utf-16le", "replace"))
+        texts.append(sample.decode("utf-16be", "replace"))
+    found = []
+    seen = set()
+    for text in texts:
+        for item in findings_for_text(text, evidence):
+            key = (item.get("kind"), str(item.get("value", "")).lower())
+            if key in seen:
+                continue
+            seen.add(key)
+            found.append(item)
+    flags = [item for item in found if item.get("kind") == "candidate_flag"]
+    decodes = [item for item in found if item.get("kind") == "encoding"]
+    return flags[:MAX_HITS] + decodes[:MAX_DECODE_LEADS]
+
+
+def _mostly_printable(data: bytes) -> bool:
+    if not data:
+        return False
+    printable = sum(32 <= byte <= 126 for byte in data)
+    return printable >= len(data) * 0.8
+
+
+def _utf16_label(sample: bytes):
+    if len(sample) < 32:
+        return None
+    pairs = len(sample) // 2
+    even_nul = sum(1 for index in range(0, pairs * 2, 2) if sample[index] == 0)
+    odd_nul = sum(1 for index in range(1, pairs * 2, 2) if sample[index] == 0)
+    if odd_nul > pairs * 0.6 and even_nul < pairs * 0.2:
+        other = bytes(sample[index] for index in range(0, pairs * 2, 2))
+        if _mostly_printable(other):
+            return "UTF-16 LE"
+    if even_nul > pairs * 0.6 and odd_nul < pairs * 0.2:
+        other = bytes(sample[index] for index in range(1, pairs * 2, 2))
+        if _mostly_printable(other):
+            return "UTF-16 BE"
+    return None
+
+
+def charset_label(data: bytes) -> str:
+    sample = data[:65536]
+    if sample.startswith(b"\xff\xfe\x00\x00"):
+        return "UTF-32 LE"
+    if sample.startswith(b"\x00\x00\xfe\xff"):
+        return "UTF-32 BE"
+    if sample.startswith(b"\xff\xfe"):
+        return "UTF-16 LE"
+    if sample.startswith(b"\xfe\xff"):
+        return "UTF-16 BE"
+    if sample.startswith(b"\xef\xbb\xbf"):
+        return "UTF-8"
+    wide = _utf16_label(sample)
+    if wide:
+        return wide
+    try:
+        sample.decode("utf-8")
+    except UnicodeDecodeError:
+        return "binary"
+    return "UTF-8"
+
+
+def charset_finding(data: bytes) -> dict:
+    return {
+        "id": "charset",
+        "kind": "encoding",
+        "confidence": "medium",
+        "title": "Character encoding",
+        "value": charset_label(data),
+        "evidence": "byte order mark, UTF-16 layout, or a UTF-8 decode of the start of the file",
+    }
 
 
 def findings_for_artifacts(job_dir, artifacts, evidence, limit=262144):

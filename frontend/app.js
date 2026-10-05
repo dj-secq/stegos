@@ -40,6 +40,7 @@ const state = {
   frame: 0,
   remap: "",
   openCheck: "",
+  choseCheck: false,
 };
 
 function setProgress(text) {
@@ -52,6 +53,8 @@ function statusLabel(status) {
 
 function watchJob(job) {
   state.job = job;
+  state.choseCheck = false;
+  state.openCheck = "";
   renderJob(job);
   window.clearInterval(state.timer);
   state.timer = null;
@@ -124,18 +127,62 @@ function copyButton(text) {
   return button;
 }
 
-function leadBlock(value, note, worth) {
+function leadBlock(value, note, worth, analyzerId) {
   const row = document.createElement("div");
   row.className = worth ? "lead worth" : "lead";
   const text = document.createElement("p");
   text.className = "lead-value";
   text.textContent = value;
+  const actions = document.createElement("div");
+  actions.className = "lead-actions";
+  actions.append(copyButton(value));
+  if (analyzerId) actions.append(showButton(analyzerId));
   const noteNode = document.createElement("p");
   noteNode.className = "hint";
   noteNode.textContent = note || "";
-  row.append(text, copyButton(value));
+  row.append(text, actions);
   if (note) row.append(noteNode);
   return row;
+}
+
+function showButton(analyzerId) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = "Show";
+  button.addEventListener("click", () => {
+    state.choseCheck = true;
+    state.openCheck = analyzerId;
+    checks.dataset.key = "";
+    renderChecks(state.job);
+    const row = checks.querySelector(`[data-check="${analyzerId}"]`);
+    if (row) row.scrollIntoView({ block: "nearest" });
+  });
+  return button;
+}
+
+function citation(item) {
+  const parts = [];
+  if (item.line) parts.push(`line ${item.line}`);
+  if (item.offset) parts.push(`offset ${item.offset}`);
+  if (!parts.length && item.evidence) parts.push(item.evidence);
+  return parts.join(", ");
+}
+
+function analyzerName(job, analyzerId) {
+  const found = (job.analyzers || []).find((item) => item.id === analyzerId);
+  return found ? found.name : "";
+}
+
+function leadNote(job, item) {
+  const places = item.locations && item.locations.length > 1 ? `${item.locations.length} places` : "";
+  return [item.title, citation(item), analyzerName(job, item.analyzer_id), places].filter(Boolean).join(". ");
+}
+
+function opensCheck(item) {
+  if (item.kind === "candidate_flag" || item.kind === "passphrase_candidate") return true;
+  if (item.kind === "encoding" && /decoded/i.test(item.title || "")) return true;
+  const evidence = String(item.evidence || "").toLowerCase();
+  return evidence.includes("zbar") && item.kind !== "candidate_flag";
 }
 
 function heading(text) {
@@ -212,6 +259,7 @@ function resetWork() {
   state.frame = 0;
   state.remap = "";
   state.openCheck = "";
+  state.choseCheck = false;
   work.hidden = true;
   deleteButton.hidden = true;
   startButton.disabled = false;
@@ -499,12 +547,13 @@ function renderStage(job) {
 function findingGroups(job) {
   const all = job.findings || [];
   const flags = all.filter((item) => item.kind === "candidate_flag");
+  const encodings = all.filter((item) => item.kind === "encoding");
   const phrases = all.filter((item) => item.kind === "passphrase_candidate");
   const hashes = all.filter((item) => item.kind === "hash_candidate" || /^[0-9a-fA-F]{32}$/.test(String(item.value || "").trim()));
   const barcodes = all.filter((item) => String(item.evidence || "").toLowerCase().includes("zbar") && item.kind !== "candidate_flag");
-  const shown = new Set([...flags, ...phrases, ...hashes, ...barcodes]);
+  const shown = new Set([...flags, ...encodings, ...phrases, ...hashes, ...barcodes]);
   const notes = all.filter((item) => !shown.has(item) && (item.kind === "observation" || item.kind === "checksum")).slice(0, 8);
-  return { flags, phrases, hashes, barcodes, notes };
+  return { flags, encodings, phrases, hashes, barcodes, notes };
 }
 
 function renderLeads(job) {
@@ -512,6 +561,7 @@ function renderLeads(job) {
   const carved = collect(job, "carved");
   const key = JSON.stringify({
     flags: groups.flags.map((item) => item.value),
+    encodings: groups.encodings.map((item) => item.value),
     phrases: groups.phrases.map((item) => item.value),
     hashes: groups.hashes.map((item) => item.value),
     barcodes: groups.barcodes.map((item) => item.value),
@@ -521,7 +571,7 @@ function renderLeads(job) {
   if (leads.dataset.key === key) return;
   leads.dataset.key = key;
   leads.replaceChildren();
-  const empty = !groups.flags.length && !groups.phrases.length && !groups.hashes.length && !groups.barcodes.length && !carved.length && !groups.notes.length;
+  const empty = !groups.flags.length && !groups.encodings.length && !groups.phrases.length && !groups.hashes.length && !groups.barcodes.length && !carved.length && !groups.notes.length;
   if (empty) {
     const note = document.createElement("p");
     note.className = "hint";
@@ -535,19 +585,26 @@ function renderLeads(job) {
     note.className = "hint";
     note.textContent = "A match is not proof the flag is correct.";
     leads.append(note);
-    groups.flags.forEach((item) => leads.append(leadBlock(item.value, [item.title, item.evidence].filter(Boolean).join(". "), true)));
+    groups.flags.forEach((item) => leads.append(leadBlock(item.value, leadNote(job, item), true, item.analyzer_id)));
+  }
+  if (groups.encodings.length) {
+    leads.append(heading("Encodings"));
+    groups.encodings.forEach((item) => {
+      const worth = item.value !== "binary" && item.value !== "UTF-8";
+      leads.append(leadBlock(item.value, leadNote(job, item), worth, item.analyzer_id));
+    });
   }
   if (groups.phrases.length) {
     leads.append(heading("Passphrases"));
-    groups.phrases.forEach((item) => leads.append(leadBlock(item.value, "Put this in the password box and start again.", true)));
+    groups.phrases.forEach((item) => leads.append(leadBlock(item.value, "Put this in the password box and start again. " + leadNote(job, item), true, item.analyzer_id)));
   }
   if (groups.hashes.length) {
     leads.append(heading("Hashes"));
-    groups.hashes.forEach((item) => leads.append(leadBlock(item.value, "Take this to a hash identifier. This page does not look it up.", false)));
+    groups.hashes.forEach((item) => leads.append(leadBlock(item.value, "Take this to a hash identifier. This page does not look it up.", false, item.analyzer_id)));
   }
   if (groups.barcodes.length) {
     leads.append(heading("Barcodes"));
-    groups.barcodes.forEach((item) => leads.append(leadBlock(item.value, item.title || "Barcode", true)));
+    groups.barcodes.forEach((item) => leads.append(leadBlock(item.value, leadNote(job, item) || item.title || "Barcode", true, item.analyzer_id)));
   }
   if (carved.length) {
     leads.append(heading("Carved files"));
@@ -564,7 +621,7 @@ function renderLeads(job) {
     leads.append(heading("Notes"));
     groups.notes.forEach((item) => {
       const worth = /decoded/i.test(item.title || "");
-      leads.append(leadBlock(item.value, item.title || "", worth));
+      leads.append(leadBlock(item.value, leadNote(job, item) || item.title || "", worth, item.analyzer_id));
     });
   }
 }
@@ -573,8 +630,63 @@ function logArtifacts(analyzer) {
   return (analyzer.artifacts || []).filter((art) => String(art.media_type || "").startsWith("text/"));
 }
 
+function leadCount(analyzer) {
+  return (analyzer.findings || []).filter((item) => item.kind !== "checksum").length;
+}
+
+function renderCheckFinding(item) {
+  const block = document.createElement("div");
+  block.className = "check-finding";
+  const title = document.createElement("p");
+  title.className = "hint";
+  title.textContent = [item.title, citation(item)].filter(Boolean).join(" · ");
+  const value = document.createElement("p");
+  value.className = "lead-value";
+  value.textContent = item.value || "";
+  block.append(title, value);
+  if (item.excerpt) {
+    const excerpt = document.createElement("p");
+    excerpt.className = "excerpt";
+    excerpt.textContent = item.excerpt;
+    block.append(excerpt);
+  }
+  return block;
+}
+
+function markLog(pre, text, findings) {
+  const lines = String(text || "").split("\n");
+  const wanted = new Set();
+  (findings || []).forEach((item) => {
+    const line = lines[item.line - 1];
+    const needle = String(item.excerpt || item.value || "").slice(0, 40);
+    if (item.line && line && needle && line.includes(needle)) wanted.add(item.line - 1);
+  });
+  pre.replaceChildren();
+  lines.forEach((line, index) => {
+    const suffix = index < lines.length - 1 ? "\n" : "";
+    if (!wanted.has(index)) {
+      pre.append(line + suffix);
+      return;
+    }
+    const mark = document.createElement("mark");
+    mark.className = "log-hit";
+    mark.textContent = line + suffix;
+    pre.append(mark);
+  });
+  return pre.querySelector(".log-hit");
+}
+
 function renderChecks(job) {
-  const key = (job.analyzers || []).map((item) => `${item.id}:${item.status}:${item.duration_ms}`).join("|") + "~" + state.openCheck;
+  if (!state.choseCheck) {
+    const first = (job.analyzers || []).find((analyzer) => (analyzer.findings || []).some(opensCheck));
+    if (first) {
+      state.openCheck = first.id;
+      state.choseCheck = true;
+    } else if (DONE.has(job.status)) {
+      state.choseCheck = true;
+    }
+  }
+  const key = (job.analyzers || []).map((item) => `${item.id}:${item.status}:${item.duration_ms}:${(item.findings || []).length}`).join("|") + "~" + state.openCheck;
   if (checks.dataset.key === key) return;
   checks.dataset.key = key;
   checks.replaceChildren();
@@ -588,6 +700,7 @@ function renderChecks(job) {
   (job.analyzers || []).forEach((analyzer) => {
     const item = document.createElement("div");
     item.className = "check";
+    item.dataset.check = analyzer.id;
     const button = document.createElement("button");
     button.type = "button";
     button.className = "check-button";
@@ -595,6 +708,13 @@ function renderChecks(job) {
     button.setAttribute("aria-expanded", open ? "true" : "false");
     const name = document.createElement("span");
     name.textContent = analyzer.name;
+    const count = leadCount(analyzer);
+    if (count) {
+      const badge = document.createElement("span");
+      badge.className = "lead-count";
+      badge.textContent = count === 1 ? "1 lead" : `${count} leads`;
+      name.append(" ", badge);
+    }
     const status = document.createElement("span");
     status.className = `status status-${analyzer.status || "queued"}`;
     status.textContent = statusLabel(analyzer.status);
@@ -608,6 +728,7 @@ function renderChecks(job) {
       const summary = document.createElement("p");
       summary.textContent = analyzer.summary || "No summary.";
       panel.append(summary);
+      (analyzer.findings || []).forEach((finding) => panel.append(renderCheckFinding(finding)));
       if (analyzer.error) {
         const error = document.createElement("p");
         error.className = "check-error";
@@ -624,8 +745,8 @@ function renderChecks(job) {
       if (logs.length) {
         const details = document.createElement("details");
         const images = (analyzer.artifacts || []).some((art) => String(art.media_type || "").startsWith("image/"));
-        const flag = (analyzer.findings || []).some((finding) => finding.kind === "candidate_flag");
-        if (!images && !flag) details.open = true;
+        const quoted = (analyzer.findings || []).some((finding) => finding.excerpt);
+        if (!images && !quoted) details.open = true;
         const label = document.createElement("summary");
         label.textContent = "Raw log";
         const pre = document.createElement("pre");
@@ -635,11 +756,15 @@ function renderChecks(job) {
         panel.append(details);
         fetch(artifactUrl(job, logs[0], true))
           .then((response) => response.text())
-          .then((text) => { pre.textContent = text; })
+          .then((text) => {
+            const hit = markLog(pre, text, analyzer.findings);
+            if (details.open && hit) hit.scrollIntoView({ block: "center" });
+          })
           .catch(() => { pre.textContent = "The log could not be loaded."; });
       }
     }
     button.addEventListener("click", () => {
+      state.choseCheck = true;
       state.openCheck = open ? "" : analyzer.id;
       checks.dataset.key = "";
       renderChecks(job);

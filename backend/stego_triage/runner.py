@@ -5,6 +5,9 @@ import signal
 import select
 from typing import Dict, Any, List, Optional
 
+SANDBOX_PATH = "/usr/local/bin:/usr/bin:/bin"
+
+
 class RunResult:
     def __init__(self):
         self.exit_code: int = -1
@@ -35,7 +38,7 @@ def run_bounded(
     
     start_time = time.monotonic()
     
-    safe_env = {"PATH": "/usr/local/bin:/usr/bin:/bin"}
+    safe_env = {"PATH": SANDBOX_PATH}
     if env: safe_env.update(env)
         
     try:

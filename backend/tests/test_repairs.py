@@ -75,6 +75,35 @@ def test_nulls_do_not_hide_a_utf16_flag():
     assert findings_for_text("ZZZ{custom}") == []
 
 
+def test_encoding_lead_keeps_the_line_and_a_second_place():
+    from stego_triage.flags import charset_finding
+    from stego_triage.worker import merge_findings
+
+    hexed = findings_for_text("before\n666c61677b68697d\nafter")
+    flag = next(item for item in hexed if item["value"] == "flag{hi}")
+    assert flag["line"] == 2
+    assert "666c61677b68697d" in flag["excerpt"]
+
+    decoded = findings_for_text("see 68656c6c6f776f726c64 here")
+    lead = next(item for item in decoded if item["kind"] == "encoding")
+    assert lead["value"] == "helloworld"
+    assert lead["line"] == 1
+    assert "68656c6c6f776f726c64" in lead["excerpt"]
+    assert not any(item["kind"] == "candidate_flag" for item in decoded)
+
+    assert charset_finding(b"hello").get("value") == "UTF-8"
+    assert charset_finding(b"\xff\xfe" + "Hi".encode("utf-16le")[2:]).get("value") == "UTF-16 LE"
+    wide = "H4G{wide-text-sample}".encode("utf-16le")
+    assert charset_finding(wide)["value"] == "UTF-16 LE"
+    assert charset_finding(b"\x89PNG\r\n\x1a\n" + bytes(64))["value"] == "binary"
+
+    merged = []
+    merge_findings(merged, [{"kind": "candidate_flag", "value": "flag{a}", "evidence": "one", "line": 2}], "strings")
+    merge_findings(merged, [{"kind": "candidate_flag", "value": "flag{a}", "evidence": "two", "line": 9}], "zsteg")
+    assert len(merged) == 1
+    assert [item["analyzer_id"] for item in merged[0]["locations"]] == ["strings", "zsteg"]
+
+
 def test_flag_scan_split_wrapped_and_plain_text():
     split = findings_for_text("prefix f l a g { s p l i t } suffix")
     assert any(item["value"] == "flag{split}" and "split" in item["title"] for item in split)

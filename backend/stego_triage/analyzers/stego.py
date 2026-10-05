@@ -4,7 +4,7 @@ import shutil
 import time
 from typing import Dict, Any, List
 from .base import Analyzer, register
-from ..runner import run_bounded
+from ..runner import SANDBOX_PATH, run_bounded
 from .extract import register_artifacts
 
 
@@ -27,7 +27,7 @@ def _merge_logs(dest: str, *sources: str) -> None:
 
 
 def _tool_missing(res: Dict[str, Any], binary: str, summary: str) -> bool:
-    if shutil.which(binary):
+    if shutil.which(binary, path=SANDBOX_PATH):
         return False
     res["status"] = "unavailable"
     res["summary"] = summary
@@ -71,7 +71,14 @@ class ZstegAnalyzer(Analyzer):
                 from ..flags import findings_for_text
                 found = findings_for_text(out, "zsteg output")
             res["findings"].extend(found)
-            res["summary"] = f"Found {len(found)} candidate flags."
+            flag_count = sum(1 for item in found if item.get("kind") == "candidate_flag")
+            decode_count = sum(1 for item in found if item.get("kind") == "encoding")
+            parts = []
+            if flag_count:
+                parts.append(f"{flag_count} candidate flag" + ("" if flag_count == 1 else "s"))
+            if decode_count:
+                parts.append(f"{decode_count} decoded text lead" + ("" if decode_count == 1 else "s"))
+            res["summary"] = "Found " + " and ".join(parts) + "." if parts else "No candidate flag."
             res['artifacts'].append({
                 "id": f"{self.id}.txt",
                 "name": "zsteg.txt",

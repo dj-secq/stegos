@@ -59,7 +59,7 @@ def _bits(text, one):
 
 
 def test_missing_password_tools_are_unavailable(monkeypatch):
-    monkeypatch.setattr("stego_triage.analyzers.stego.shutil.which", lambda _name: None)
+    monkeypatch.setattr("stego_triage.analyzers.stego.shutil.which", lambda _name, path=None: None)
     _job_dir, input_path = _job("photo.jpg")
     with open(input_path, "wb") as handle:
         handle.write(b"\xff\xd8\xff\xd9")

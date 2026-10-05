@@ -33,20 +33,23 @@ class PngcheckAnalyzer(Analyzer):
             
             # Simple parsing
             errors = []
-            for line in out.split('\n'):
+            for number, line in enumerate(out.split('\n'), 1):
                 if 'ERROR' in line or 'invalid' in line or 'CRC error' in line or 'illegal' in line:
-                    errors.append(line.strip())
+                    errors.append((number, line.strip()))
             
             if errors:
                 res['summary'] = f"Found {len(errors)} structural warnings/errors."
-                for e in errors[:5]:
+                for number, e in errors[:5]:
+                    excerpt = e if len(e) <= 160 else e[:157] + "..."
                     res['findings'].append({
                         "id": f"pngcheck_err_{hash(e)}",
                         "kind": "observation",
                         "confidence": "high",
                         "title": "PNG Structural Error",
                         "value": e,
-                        "evidence": ""
+                        "evidence": "pngcheck",
+                        "line": number,
+                        "excerpt": excerpt,
                     })
             else:
                 res['summary'] = "No structural errors found."
@@ -246,6 +249,7 @@ class PngTextAnalyzer(Analyzer):
                         "title": f"PNG text {key or 'chunk'}",
                         "value": preview,
                         "evidence": "tEXt, zTXt, or iTXt",
+                        "excerpt": preview if len(preview) <= 160 else preview[:157] + "...",
                     })
                     res["findings"].extend(findings_for_text(value[:100000], f"PNG text {key}"))
         except Exception as exc:

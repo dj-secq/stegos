@@ -36,7 +36,9 @@ async function runJob(page) {
   await page.keyboard.press("ArrowRight");
   await expect(page.getByRole("button", { name: "1", exact: true })).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("button", { name: /Strings/ }).click();
-  await expect(page.locator(".check-panel").getByText(/strings|candidate/i).first()).toBeVisible();
+  const stringsPanel = page.locator(".check[data-check='strings'] .check-panel");
+  await expect(stringsPanel.locator(".lead-value", { hasText: "H4G{bench}" })).toBeVisible();
+  await expect(stringsPanel.locator(".excerpt").first()).toBeVisible();
   const download = page.waitForEvent("download");
   await page.getByRole("link", { name: "Download this view" }).click();
   expect((await download).suggestedFilename()).toBeTruthy();
