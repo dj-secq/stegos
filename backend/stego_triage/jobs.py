@@ -12,20 +12,63 @@ from .security import safe_join
 _jobs_lock = threading.Lock()
 active_jobs = 0
 queued_jobs = 0
+_held: set[str] = set()
+
+def _job_is_live(job_id: str) -> bool:
+    job = get_job(job_id)
+    return bool(job and job.get("status") in ("queued", "running"))
+
+def _release_dead_held() -> None:
+    """Drop slots whose job is gone or already finished. The counter can otherwise stick at full."""
+    global queued_jobs
+    for job_id in list(_held):
+        if _job_is_live(job_id):
+            continue
+        _held.discard(job_id)
+        queued_jobs = max(0, queued_jobs - 1)
+
+def release_slot(job_id: str) -> None:
+    global queued_jobs
+    with _jobs_lock:
+        if job_id not in _held:
+            return
+        _held.discard(job_id)
+        queued_jobs = max(0, queued_jobs - 1)
+
+def current_job() -> Dict[str, Any] | None:
+    if not os.path.isdir(config.RUNTIME_ROOT):
+        return None
+    newest = None
+    for name in os.listdir(config.RUNTIME_ROOT):
+        job = get_job(name)
+        if not job or job.get("status") not in ("queued", "running"):
+            continue
+        if newest is None or str(job.get("created_at") or "") >= str(newest.get("created_at") or ""):
+            newest = job
+    return newest
 
 def create_job(filename: str, size: int, mime: str, profile: str, password: str = None, flag_prefix: str = None) -> str:
     global queued_jobs
     with _jobs_lock:
+        _release_dead_held()
         if queued_jobs >= config.MAX_QUEUED_JOBS:
             return None
         queued_jobs += 1
+        job_id = secrets.token_hex(16)
+        _held.add(job_id)
 
-    job_id = secrets.token_hex(16)
     job_dir = safe_join(config.RUNTIME_ROOT, job_id)
-    os.makedirs(job_dir, exist_ok=True)
-    os.makedirs(os.path.join(job_dir, "input"), exist_ok=True)
-    os.makedirs(os.path.join(job_dir, "artifacts"), exist_ok=True)
-    os.makedirs(os.path.join(job_dir, "logs"), exist_ok=True)
+    if not job_dir:
+        release_slot(job_id)
+        return None
+    try:
+        os.makedirs(job_dir, exist_ok=True)
+        os.makedirs(os.path.join(job_dir, "input"), exist_ok=True)
+        os.makedirs(os.path.join(job_dir, "artifacts"), exist_ok=True)
+        os.makedirs(os.path.join(job_dir, "logs"), exist_ok=True)
+    except Exception:
+        release_slot(job_id)
+        raise
     
     now = time.gmtime()
     expiry = time.gmtime(time.time() + config.JOB_RETENTION_SECONDS)
@@ -69,7 +112,11 @@ def create_job(filename: str, size: int, mime: str, profile: str, password: str 
         with open(os.path.join(job_dir, "input", "password.txt"), "w") as f:
             f.write(password)
         
-    _write_manifest(job_id, manifest)
+    try:
+        _write_manifest(job_id, manifest)
+    except Exception:
+        release_slot(job_id)
+        raise
     return job_id
 
 def get_job(job_id: str, redact_password: bool = True) -> Dict[str, Any] | None:

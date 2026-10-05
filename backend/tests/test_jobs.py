@@ -13,6 +13,7 @@ def teardown_module(module):
 def setup_function():
     jobs.queued_jobs = 0
     jobs.active_jobs = 0
+    jobs._held.clear()
 
 def test_schema_and_atomic_writes():
     job_id = jobs.create_job("test.png", 100, "image/png", "quick")
@@ -22,9 +23,23 @@ def test_schema_and_atomic_writes():
     assert manifest["status"] == "queued"
 
 def test_queue_full():
+    jobs._held.clear()
     jobs.queued_jobs = config.MAX_QUEUED_JOBS
     job_id = jobs.create_job("test.png", 100, "image/png", "quick")
     assert job_id is None
+
+def test_deleted_job_frees_the_slot():
+    job_id = jobs.create_job("a.png", 10, "image/png", "quick")
+    assert job_id
+    cleanup.delete_job(job_id)
+    again = jobs.create_job("b.png", 10, "image/png", "quick")
+    assert again
+
+def test_release_slot_lets_the_next_job_start():
+    job_id = jobs.create_job("a.png", 10, "image/png", "quick")
+    jobs.release_slot(job_id)
+    assert jobs.queued_jobs == 0
+    assert jobs.create_job("b.png", 10, "image/png", "quick")
 
 def test_restart_recovery():
     job_id = jobs.create_job("test.png", 100, "image/png", "quick")

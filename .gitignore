@@ -1,14 +1,54 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+
+# Local app state and installs
 runtime/
 backend/venv/
 backend/build/
-backend/*.egg-info/
-**/__pycache__/
-.pytest_cache/
-*.pyc
-*.tar
-*.tar.sha256
-*.tar.zst
+
+# Node and browser tests
 node_modules/
 test-results/
 playwright-report/
 blob-report/
+playwright/.cache/
+
+# Exported container images
+*.tar
+*.tar.sha256
+*.tar.zst
+
+# Secrets and machine-local env
+.env
+.env.*
+!.env.example
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*~
+
+# Agent tooling, skills, and plans
+.grok/
+.cursor/
+.claude/
+.codex/
+.agents/
+/AGENTS.md
+/CLAUDE.md
+/skills/
+/plans/
+**/*.plan.md

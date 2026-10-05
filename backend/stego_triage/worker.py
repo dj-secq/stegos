@@ -13,29 +13,33 @@ class AnalyzerWorker(threading.Thread):
         self.running = True
 
     def run(self):
-        self.recover_stale_jobs()
+        try:
+            self.recover_stale_jobs()
+        except Exception:
+            pass
         while self.running:
             job_id = None
+            try:
+                with jobs._jobs_lock:
+                    if os.path.exists(config.RUNTIME_ROOT):
+                        for d in os.listdir(config.RUNTIME_ROOT):
+                            job = jobs.get_job(d)
+                            if job and job.get('status') == 'queued':
+                                job_id = d
+                                job['status'] = 'running'
+                                jobs._write_manifest(d, job)
+                                break
 
-            with jobs._jobs_lock:
-                if os.path.exists(config.RUNTIME_ROOT):
-                    for d in os.listdir(config.RUNTIME_ROOT):
-                        job = jobs.get_job(d)
-                        if job and job.get('status') == 'queued':
-                            job_id = d
-                            job['status'] = 'running'
-                            jobs._write_manifest(d, job)
-                            break
-
-            if job_id:
-                try:
-                    self.process_job(job_id)
-                except Exception as e:
-                    self.fail_job(job_id, str(e))
-                finally:
-                    with jobs._jobs_lock:
-                        jobs.queued_jobs = max(0, jobs.queued_jobs - 1)
-            else:
+                if job_id:
+                    try:
+                        self.process_job(job_id)
+                    except Exception as e:
+                        self.fail_job(job_id, str(e))
+                    finally:
+                        jobs.release_slot(job_id)
+                else:
+                    time.sleep(1)
+            except Exception:
                 time.sleep(1)
 
     def recover_stale_jobs(self):
@@ -179,3 +183,11 @@ class AnalyzerWorker(threading.Thread):
 # Start the worker thread
 worker = AnalyzerWorker()
 worker.start()
+
+def ensure_worker() -> None:
+    """Restart the checker if the background thread has died. A dead thread leaves the only slot occupied."""
+    global worker
+    if worker is not None and worker.is_alive():
+        return
+    worker = AnalyzerWorker()
+    worker.start()

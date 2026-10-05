@@ -1,5 +1,19 @@
 const MAX_BYTES = 25 * 1024 * 1024;
 const DONE = new Set(["complete", "partial", "failed", "cancelled"]);
+const STATUS_LABEL = {
+  queued: "Queued",
+  running: "Running",
+  success: "Done",
+  no_result: "No result",
+  unavailable: "Unavailable",
+  failed: "Failed",
+  timeout: "Timed out",
+  skipped: "Skipped",
+  unsupported: "Unsupported",
+  cancelled: "Cancelled",
+  partial: "Partial",
+  complete: "Complete",
+};
 const CHANNELS = ["R", "G", "B", "A", "RGB"];
 
 const dropZone = document.getElementById("drop-zone");
@@ -30,6 +44,23 @@ const state = {
 
 function setProgress(text) {
   progress.textContent = text;
+}
+
+function statusLabel(status) {
+  return STATUS_LABEL[status] || "Queued";
+}
+
+function watchJob(job) {
+  state.job = job;
+  renderJob(job);
+  window.clearInterval(state.timer);
+  state.timer = null;
+  if (!DONE.has(job.status)) {
+    startButton.disabled = true;
+    state.timer = window.setInterval(poll, 1000);
+  } else {
+    startButton.disabled = false;
+  }
 }
 
 function artifactUrl(job, art, preview) {
@@ -566,9 +597,9 @@ function renderChecks(job) {
     name.textContent = analyzer.name;
     const status = document.createElement("span");
     status.className = `status status-${analyzer.status || "queued"}`;
-    status.textContent = analyzer.status || "queued";
+    status.textContent = statusLabel(analyzer.status);
     const timing = document.createElement("span");
-    timing.textContent = `${analyzer.duration_ms || 0} ms`;
+    timing.textContent = analyzer.duration_ms ? `${analyzer.duration_ms} ms` : "";
     button.append(name, status, timing);
     const panel = document.createElement("div");
     panel.className = "check-panel";
@@ -648,7 +679,21 @@ async function poll() {
   }
 }
 
+async function resumeCurrent() {
+  try {
+    const response = await fetch("/api/jobs/current");
+    if (response.status === 204 || !response.ok) return;
+    const job = await response.json();
+    if (!job || !job.job_id) return;
+    watchJob(job);
+    poll();
+  } catch (err) {
+    /* The bench still works if this lookup fails. */
+  }
+}
+
 startButton.addEventListener("click", async () => {
+  if (startButton.disabled) return;
   if (!state.file) {
     setProgress("Choose a file first.");
     return;
@@ -668,14 +713,29 @@ startButton.addEventListener("click", async () => {
     const response = await fetch("/api/jobs", { method: "POST", body });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
+      if (response.status === 429 && payload.job_id) {
+        setProgress("An analysis is already running. Delete it to start another.");
+        watchJob({
+          job_id: payload.job_id,
+          status: "running",
+          analyzers: [],
+          findings: [],
+          input: {},
+        });
+        poll();
+        return;
+      }
       startButton.disabled = false;
       setProgress(payload.error || "The file was not accepted.");
       return;
     }
-    state.job = { job_id: payload.job_id, status: "queued", analyzers: [], findings: [], input: { display_name: state.file.name, size: state.file.size } };
-    renderJob(state.job);
-    window.clearInterval(state.timer);
-    state.timer = window.setInterval(poll, 1000);
+    watchJob({
+      job_id: payload.job_id,
+      status: "queued",
+      analyzers: [],
+      findings: [],
+      input: { display_name: state.file.name, size: state.file.size },
+    });
     poll();
   } catch (err) {
     startButton.disabled = false;
@@ -692,6 +752,8 @@ deleteButton.addEventListener("click", async () => {
   fileInput.value = "";
   setProgress("Deleted. Drop another file.");
 });
+
+resumeCurrent();
 
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {

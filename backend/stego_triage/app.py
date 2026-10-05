@@ -75,9 +75,15 @@ def create_job():
     if size > config.MAX_UPLOAD_BYTES:
         return jsonify({"error": "File too large"}), 413
         
+    worker.ensure_worker()
     job_id = jobs.create_job(secure_filename(file.filename), size, file.content_type, profile, password, flag_prefix)
     if not job_id:
-        return jsonify({"error": "Queue is full"}), 429
+        current = jobs.current_job()
+        payload = {"error": "An analysis is already running."}
+        if current and current.get("job_id"):
+            payload["job_id"] = current["job_id"]
+            payload["status_url"] = f"/api/jobs/{current['job_id']}"
+        return jsonify(payload), 429
         
     job_dir = safe_join(config.RUNTIME_ROOT, job_id)
     input_path = os.path.join(job_dir, "input", "file")
@@ -89,6 +95,14 @@ def create_job():
         "created_at": jobs.get_job(job_id)['created_at'],
         "status_url": f"/api/jobs/{job_id}"
     }), 202
+
+@app.route('/api/jobs/current', methods=['GET'])
+def current_job():
+    worker.ensure_worker()
+    current = jobs.current_job()
+    if not current:
+        return "", 204
+    return jsonify(current)
 
 @app.route('/api/jobs/<job_id>', methods=['GET'])
 def get_job(job_id):
@@ -103,6 +117,7 @@ def delete_job(job_id):
     if manifest and manifest.get('status') in ['running', 'queued']:
         manifest['status'] = 'cancelled'
         jobs._write_manifest(job_id, manifest)
+    jobs.release_slot(job_id)
     cleanup.delete_job(job_id)
     return '', 204
 

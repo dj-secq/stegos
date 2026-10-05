@@ -23,19 +23,27 @@
         </div>
         <input id="file-input" type="file" tabindex="-1" aria-hidden="true">
         <div class="fields">
-          <fieldset>
+          <fieldset class="pass">
             <legend>Pass</legend>
-            <label><input type="radio" name="profile" value="quick" checked> Quick</label>
-            <label><input type="radio" name="profile" value="deep"> Deep</label>
+            <div class="choices">
+              <label class="choice">
+                <input type="radio" name="profile" value="quick" checked>
+                <span>Quick</span>
+              </label>
+              <label class="choice">
+                <input type="radio" name="profile" value="deep">
+                <span>Deep</span>
+              </label>
+            </div>
           </fieldset>
           <label class="stack" for="flag-prefix">Flag prefix
-            <input id="flag-prefix" maxlength="24" autocomplete="off" spellcheck="false" value="H4G">
+            <input id="flag-prefix" type="text" maxlength="24" autocomplete="off" spellcheck="false" value="H4G">
           </label>
           <label class="stack" for="file-password">Password
             <input id="file-password" type="password" autocomplete="off" spellcheck="false">
           </label>
         </div>
-        <p class="hint">Leave the password empty to try a blank password. It is not kept in the results. A hit is a lead.</p>
+        <p class="hint file-note">Leave the password empty to try a blank password. It is not kept in the results. A hit is a lead.</p>
         <div class="file-actions">
           <button id="btn-start" class="primary" type="button">Start analysis</button>
           <button id="btn-delete" type="button" hidden>Delete job</button>

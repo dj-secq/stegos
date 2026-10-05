@@ -47,11 +47,11 @@ body {
 .page {
   max-width: 1180px;
   margin: 0 auto;
-  padding: 28px 16px 64px;
+  padding: 32px 24px 72px;
   overflow-x: clip;
 }
 
-.mast { margin-bottom: 18px; }
+.mast { margin-bottom: 20px; }
 
 h1 {
   margin: 0 0 6px;
@@ -77,7 +77,7 @@ h2 {
 .window {
   border: 1px solid var(--line);
   background: var(--frame);
-  margin-bottom: 16px;
+  margin-bottom: 20px;
 }
 
 .window-label {
@@ -85,27 +85,50 @@ h2 {
   justify-content: space-between;
   gap: 12px;
   align-items: baseline;
-  padding: 8px 12px;
+  padding: 10px 16px;
   border-bottom: 1px solid var(--line);
   font-family: "JetBrains Mono", monospace;
   font-size: 0.82rem;
 }
 
-.window-body { padding: 12px; }
+.window-label span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 
-.help summary { cursor: pointer; }
+.window-body { padding: 16px; }
+
+.help summary {
+  cursor: pointer;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.help summary::marker,
+.help summary::-webkit-details-marker { content: ""; }
+
+.help summary::before {
+  content: "▸";
+  margin-right: 8px;
+  color: var(--copper);
+  flex: 0 0 auto;
+}
+
+.help[open] summary::before { content: "▾"; }
+
 .help .window-body { border-top: 0; }
-.help-copy p { margin: 0 0 10px; }
+.help-copy p { margin: 0 0 12px; }
+.help-copy p:last-child { margin-bottom: 0; }
 
 .drop {
   border: 1px dashed var(--line);
-  padding: 14px 16px;
+  padding: 20px 16px;
   cursor: pointer;
-  margin-bottom: 14px;
+  margin-bottom: 16px;
 }
 
-.drop p { margin: 0; }
-.drop .hint { margin-top: 4px; }
+.drop p { margin: 0; overflow-wrap: anywhere; }
+.drop .hint { margin-top: 6px; }
 .drop.hot { border-color: var(--copper); }
 
 #file-input {
@@ -118,41 +141,105 @@ h2 {
 
 .fields {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) minmax(0, 1.4fr);
-  gap: 12px;
+  grid-template-columns: 220px minmax(0, 1fr) minmax(0, 1.2fr);
+  gap: 16px;
   align-items: end;
-  margin-bottom: 8px;
 }
 
-fieldset {
-  border: 1px solid var(--line);
+.pass {
+  border: 0;
   margin: 0;
-  padding: 8px 12px;
+  padding: 0;
+  min-width: 0;
 }
 
-legend { padding: 0 4px; }
+.pass legend {
+  padding: 0;
+  margin: 0 0 6px;
+  font: inherit;
+}
+
+.choices {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  width: 220px;
+}
+
+.choice {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  background: var(--ground);
+  cursor: pointer;
+}
+
+.choice:hover { border-color: var(--copper); }
+
+.choice:has(input:checked) {
+  background: var(--copper);
+  border-color: var(--copper);
+  color: var(--copper-ink);
+  font-weight: 700;
+}
+
+.choice:has(input:focus-visible) {
+  outline: 2px solid var(--copper);
+  outline-offset: 2px;
+}
+
+.choice input:focus-visible { outline: none; }
+
+.choice input[type="radio"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+}
 
 .stack {
   display: grid;
-  gap: 4px;
+  gap: 6px;
+  min-width: 0;
 }
 
-input, button {
+button,
+input[type="text"],
+input[type="password"] {
   font: inherit;
   color: var(--cream);
   background: var(--ground);
   border: 1px solid var(--line);
-  padding: 8px 10px;
+  padding: 8px 12px;
 }
 
-input { width: 100%; font-family: "JetBrains Mono", monospace; }
+input[type="text"],
+input[type="password"] {
+  width: 100%;
+  min-height: 44px;
+  font-family: "JetBrains Mono", monospace;
+}
+
+button { cursor: pointer; }
+
+.file-note { margin: 12px 0 0; }
 
 .file-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-top: 12px;
+  margin-top: 16px;
 }
+
+.file-actions button { min-height: 44px; padding: 8px 16px; }
 
 button.primary {
   background: var(--copper);
@@ -168,7 +255,7 @@ button:disabled { opacity: 0.55; }
   outline-offset: 2px;
 }
 
-.progress { min-height: 1.4em; margin: 12px 0 0; }
+.progress { min-height: 1.4em; margin: 12px 0 0; overflow-wrap: anywhere; }
 .warnings { margin: 8px 0 0; padding-left: 18px; }
 
 .bench {
@@ -273,10 +360,12 @@ button:disabled { opacity: 0.55; }
   margin-bottom: 10px;
 }
 
-.lead { grid-template-columns: minmax(0, 1fr); }
+.lead { grid-template-columns: minmax(0, 1fr); gap: 6px; margin-bottom: 14px; }
 .lead .lead-value { margin: 0; overflow-wrap: anywhere; }
+.lead .hint { margin: 0; }
 .lead.worth .lead-value, .carved-row strong { color: var(--green); }
 .lead button, .carved-row a { justify-self: start; }
+.window-body h2:first-child { margin-top: 0; }
 
 .pdf-card p, .audio-block { margin: 0 0 8px; }
 audio { width: 100%; margin-bottom: 10px; }
@@ -288,18 +377,24 @@ audio { width: 100%; margin-bottom: 10px; }
   width: 100%;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
-  gap: 10px;
+  gap: 12px;
+  align-items: baseline;
   text-align: left;
   background: transparent;
   border: 0;
-  padding: 10px 4px;
+  padding: 12px 4px;
+  min-height: 0;
 }
+
+.check-button span:first-child { overflow-wrap: anywhere; }
+.check-button span:nth-child(2),
+.check-button span:nth-child(3) { white-space: nowrap; }
 
 .status-failed, .status-timeout { color: var(--red); }
 .status-running, .status-queued { color: var(--copper); }
 .status-unavailable, .status-no_result, .status-skipped, .status-unsupported { color: var(--cream-dim); }
 
-.check-panel { padding: 0 4px 12px; }
+.check-panel { padding: 0 4px 14px; }
 .check-panel p { margin: 0 0 8px; overflow-wrap: anywhere; }
 .check-error { color: var(--red); }
 
@@ -329,13 +424,17 @@ audio { width: 100%; margin-bottom: 10px; }
 @media (max-width: 800px) {
   .bench { grid-template-columns: 1fr; }
   .fields { grid-template-columns: 1fr; }
+  .choices { width: 100%; }
   .remap-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 640px) {
-  .page { padding-top: 16px; }
+  .page { padding: 16px 16px 48px; }
   h1 { font-size: 1.6rem; }
+  .window-body { padding: 14px; }
   .file-actions { display: grid; }
   .file-actions button { width: 100%; }
-  .check-button { grid-template-columns: minmax(0, 1fr); }
+  .check-button { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .check-button span:nth-child(2),
+  .check-button span:nth-child(3) { white-space: normal; }
 }
