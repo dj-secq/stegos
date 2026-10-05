@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; img-src 'self' data: blob:;">
+  <title>Stego Triage</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="page">
+    <header class="mast">
+      <h1>Stego Triage</h1>
+      <p class="lede">Drop one file. The checks run on this machine. A flag is a lead, not proof.</p>
+    </header>
+
+    <section class="window" aria-labelledby="file-label">
+      <div class="window-label" id="file-label">File</div>
+      <div class="window-body">
+        <div id="drop-zone" class="drop" tabindex="0" role="button" aria-label="Choose a file">
+          <p id="chosen">Drop a file here or press Enter to choose one</p>
+          <p class="hint">25 MiB at most</p>
+        </div>
+        <input id="file-input" type="file" tabindex="-1" aria-hidden="true">
+        <div class="fields">
+          <fieldset>
+            <legend>Pass</legend>
+            <label><input type="radio" name="profile" value="quick" checked> Quick</label>
+            <label><input type="radio" name="profile" value="deep"> Deep</label>
+          </fieldset>
+          <label class="stack" for="flag-prefix">Flag prefix
+            <input id="flag-prefix" maxlength="24" autocomplete="off" spellcheck="false" value="H4G">
+          </label>
+          <label class="stack" for="file-password">Password
+            <input id="file-password" type="password" autocomplete="off" spellcheck="false">
+          </label>
+        </div>
+        <p class="hint">Leave the password empty to try a blank password. It is not kept in the results. A hit is a lead.</p>
+        <div class="file-actions">
+          <button id="btn-start" class="primary" type="button">Start analysis</button>
+          <button id="btn-delete" type="button" hidden>Delete job</button>
+        </div>
+        <p id="progress" class="progress" aria-live="polite"></p>
+        <ul id="warnings" class="warnings" hidden></ul>
+      </div>
+    </section>
+
+    <div id="work" hidden>
+      <div class="bench">
+        <section class="window" aria-labelledby="stage-label">
+          <div class="window-label">
+            <span id="stage-label">Stage</span>
+            <span id="stage-meta"></span>
+          </div>
+          <div class="window-body">
+            <div id="views" class="views" role="group" aria-label="View"></div>
+            <div id="stage-body"></div>
+          </div>
+        </section>
+        <section class="window" aria-labelledby="leads-label">
+          <div class="window-label" id="leads-label">Leads</div>
+          <div id="leads" class="window-body"></div>
+        </section>
+      </div>
+      <section class="window" aria-labelledby="checks-label">
+        <div class="window-label" id="checks-label">Checks</div>
+        <div id="checks" class="window-body"></div>
+      </section>
+    </div>
+
+    <details class="window help">
+      <summary class="window-label">What the views mean</summary>
+      <div class="window-body help-copy">
+        <p>Original shows the safe preview. Audio plays here and does not start on its own. The waveform sits under the player. A PDF stays a text card. This page does not render active PDF content.</p>
+        <p>Channel and Bit plane show one bit of one channel. Bit 0 is the least significant bit. The left and right arrow keys move the bit. RGB stacks the three channels at that bit.</p>
+        <p>Remap shows eight palettes derived from the file hash. Choose one to put it on the stage.</p>
+        <p>Carved lists files pulled out by binwalk and foremost. Nothing in that list is run.</p>
+        <p>Frames, on a GIF, lists each frame and its delay. Bit planes still use the composited preview.</p>
+        <p>Quick runs the checks and carves when a signature is worth extracting. Deep also runs foremost and the full zsteg pass.</p>
+        <p>jsteg, jpseek, and OpenStego say unavailable when those programs are not in the image. A missing program is not a failed file.</p>
+      </div>
+    </details>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>

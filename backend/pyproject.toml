@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "stego_triage"
+version = "0.2.0"
+description = "A bounded local steganography triage API."
+dependencies = [
+    "Flask==3.0.3",
+    "gunicorn==22.0.0",
+    "Pillow==10.3.0",
+    "numpy==1.26.4",
+    "Werkzeug==3.0.3"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov"
+]

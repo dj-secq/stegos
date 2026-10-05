@@ -1,0 +1,90 @@
+{
+  "cases": [
+    {
+      "name": "intact H4G",
+      "text": "note H4G{competition}",
+      "expect": [{"value": "H4G{competition}", "detail": "intact"}]
+    },
+    {
+      "name": "space split",
+      "text": "f l a g { s p l i t }",
+      "expect": [{"value": "flag{split}", "detail": "split"}]
+    },
+    {
+      "name": "dot split",
+      "text": "f.l.a.g.{.d.o.t.}",
+      "expect": [{"value": "flag{dot}", "detail": "split"}]
+    },
+    {
+      "name": "hex with a trailing byte",
+      "text": "666c61677b68697d 00",
+      "expect": [{"value": "flag{hi}", "detail": "hex"}]
+    },
+    {
+      "name": "base64 followed by a word",
+      "text": "ZmxhZ3t0ZXN0fQ== later",
+      "expect": [{"value": "flag{test}", "detail": "base64"}]
+    },
+    {
+      "name": "colon-separated hex",
+      "text": "66:6c:61:67:7b:68:69:7d",
+      "expect": [{"value": "flag{hi}", "detail": "hex"}]
+    },
+    {
+      "name": "base64 of base64",
+      "text": "Wm14aFozdGtiM1ZpYkdWOQ==",
+      "expect": [{"value": "flag{double}", "detail": "base64"}]
+    },
+    {
+      "name": "base32",
+      "text": "MZWGCZ33MIZTE7I=",
+      "expect": [{"value": "flag{b32}", "detail": "base32"}]
+    },
+    {
+      "name": "percent-encoded braces",
+      "text": "H4G%7Bpercent%7D",
+      "expect": [{"value": "H4G{percent}", "detail": "url"}]
+    },
+    {
+      "name": "html numeric braces",
+      "text": "H4G&#123;entity&#125;",
+      "expect": [{"value": "H4G{entity}", "detail": "entity"}]
+    },
+    {
+      "name": "html hex braces",
+      "text": "H4G&#x7b;hexent&#x7d;",
+      "expect": [{"value": "H4G{hexent}", "detail": "entity"}]
+    },
+    {
+      "name": "utf-16le bytes",
+      "bytes_hex": "4800340047007b00750074006600310036007d00",
+      "encoding": "utf-16le",
+      "expect": [{"value": "H4G{utf16}", "detail": "intact"}]
+    },
+    {
+      "name": "custom prefix",
+      "text": "ZZZ{custom}",
+      "prefix": "ZZZ",
+      "expect": [{"value": "ZZZ{custom}", "detail": "intact"}]
+    },
+    {
+      "name": "custom prefix ignored unless asked",
+      "text": "ZZZ{custom}",
+      "exact": true,
+      "expect": []
+    },
+    {
+      "name": "ordinary sentence",
+      "text": "The flag is not split across this sentence.",
+      "exact": true,
+      "expect": []
+    },
+    {
+      "name": "typed prefix survives decoys",
+      "text": "flag{decoy00} flag{decoy01} flag{decoy02} flag{decoy03} flag{decoy04} flag{decoy05} flag{decoy06} flag{decoy07} flag{decoy08} flag{decoy09} flag{decoy10} flag{decoy11} flag{decoy12} flag{decoy13} flag{decoy14} flag{decoy15} flag{decoy16} flag{decoy17} flag{decoy18} flag{decoy19} flag{decoy20} flag{decoy21} flag{decoy22} flag{decoy23} flag{decoy24} flag{decoy25} flag{decoy26} flag{decoy27} flag{decoy28} flag{decoy29} H4G{prize}",
+      "prefix": "H4G",
+      "max_hits": 20,
+      "expect_contains": [{"value": "H4G{prize}", "detail": "intact"}]
+    }
+  ]
+}

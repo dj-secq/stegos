@@ -1,0 +1,14 @@
+runtime/
+backend/venv/
+backend/build/
+backend/*.egg-info/
+**/__pycache__/
+.pytest_cache/
+*.pyc
+*.tar
+*.tar.sha256
+*.tar.zst
+node_modules/
+test-results/
+playwright-report/
+blob-report/
